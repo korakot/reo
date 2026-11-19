@@ -116,12 +116,14 @@
     <p>Checked against syllables marked by hand and against transcripts (details and code in the <a href="https://github.com/korakot/reo">repository</a>):</p>
     <table id="acc">
       <tr><th>Speech</th><th>Speakers</th><th>True rate</th><th>Error</th></tr>
-      <tr><td>Read sentences (LOTUS)</td><td>12 women, 12 men</td><td>3.5 /s</td><td>+0.1% (per speaker r = 0.95)</td></tr>
-      <tr><td>Read news (TSync-1)</td><td>1 woman</td><td>4.8 /s</td><td>+0.6%</td></tr>
-      <tr><td>YouTube (GigaSpeech 2)</td><td>21 videos</td><td>5.0 /s</td><td>count 0.0% (per video ρ = 0.93)</td></tr>
-      <tr><td>YouTube talk (TVSpeech)</td><td>many</td><td>5.1 /s</td><td>count −1.3%</td></tr>
+      <tr><td>Read sentences (LOTUS)</td><td>12 women, 12 men</td><td>3.5 /s</td><td>+2.4% (per speaker r = 0.93)</td></tr>
+      <tr><td>Read news (TSync-1)</td><td>1 woman</td><td>4.8 /s</td><td>+1.2%</td></tr>
+      <tr><td>Interviews (CCOST)</td><td>30 women, 19 men</td><td>4.7 /s</td><td>−2.5% per speaker (r = 0.82)</td></tr>
+      <tr><td>YouTube (GigaSpeech 2)</td><td>21 videos</td><td>5.0 /s</td><td>count 0.0% (per video r = 0.90)</td></tr>
+      <tr><td>YouTube talk (TVSpeech)</td><td>many</td><td>4.9 /s</td><td>count 0.0%</td></tr>
     </table>
-    <p>Fast speech: exact up to about 6 syllables per second; above that some syllables merge (−5% at 6–7 /s, −12% above 7 /s), so very fast speech reads a little slower than it is, but still faster than slower speech.</p>
+    <p>Fast and slow: the same recordings played from 0.6× to 2× speed keep their syllable count within 10%, so faster speech always measures faster. A dragged span of a minute is typically within 2–4% of the truth; a few seconds, within 5–7%.</p>
+    <p>The same speech recorded differently (quieter or louder, 8 or 44.1 kHz, a telephone line, MP3, noise at 20 dB, hum) changes the number by about 2% or less, alike for women and men.</p>
     <p>Limits: one voice per channel. In a stereo call recording (agent on one side, customer on the other) each side is measured on its own; a mono recording of two people mixes their speeds. Music and loud noise add false syllables.</p>
   </details>
   <footer>reo · <a href="https://github.com/korakot/reo">github.com/korakot/reo</a> · the same code runs in Python for batches of files</footer>

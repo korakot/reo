@@ -12,7 +12,7 @@ export const HOP = 0.010;
 export const DEFAULT = {
   smooth: 6, mindip: 2.0, act_db: 30.0, nuc_db: 25.0, voi_thr: 0.42, min_pause: 0.12, min_run: 0.04,
   flat_db: 1.0, floor_db: 6.0, floor_pct: 10, use_hi: true, hi_db: 8.0, hi_max: 0.2, min_voiced: 0.03,
-  adapt: true, adapt_c: 24.0, adapt_min: 2.0, adapt_max: 14.0, adapt_group: 0.5, adapt_iter: 8,
+  adapt: true, adapt_c: 24.0, adapt_min: 2.0, adapt_max: 14.0, adapt_group: 0.5, adapt_iter: 8, adapt_span: 20.0,
   denoise: true, noise_pct: 20.0, noise_alpha: 1.0, noise_range: 50.0, act_band: 'dj',
 };
 export const RATE = { utt_pause: 0.5, min_speech: 1.0 };
@@ -233,9 +233,12 @@ export function detect(F, opts = {}) {
   }
   // speed adaptation, per utterance (stretches joined across pauses shorter than adapt_group)
   const groups = [];
-  for (const [a, b] of st) {
+  for (const [a, b] of st) { // at most adapt_span seconds of speech per group, so the speed adapts locally
     const g = groups[groups.length - 1];
-    if (g && (a - g[g.length - 1][1]) * HOP < p.adapt_group) g.push([a, b]); else groups.push([[a, b]]);
+    let have = 0;
+    if (g) for (const [x, y] of g) have += y - x;
+    if (g && (a - g[g.length - 1][1]) * HOP < p.adapt_group && (have + b - a) * HOP <= p.adapt_span) g.push([a, b]);
+    else groups.push([[a, b]]);
   }
   const margin = Math.floor(p.adapt_max / 2) + 4;
   for (const g of groups) {
@@ -243,15 +246,20 @@ export function detect(F, opts = {}) {
     for (const [a, b] of g) T += b - a;
     T *= HOP;
     const lo = Math.max(0, g[0][0] - margin), hi = Math.min(n, g[g.length - 1][1] + margin);
-    let k = p.smooth, us = [];
+    let k = p.smooth, us = [], settled = false;
     for (let it = 0; it < p.adapt_iter; it++) {
       const e = k === p.smooth ? env.subarray(lo, hi) : smooth(F.dj.slice(lo, hi), k);
       us = [];
       for (const [sa, sb] of g) us.push(...nuclei(e, lo, sa, sb));
-      if (!us.length) break;
-      const k2 = Math.min(p.adapt_max, Math.max(p.adapt_min, (p.adapt_c * T) / us.length));
-      if (Math.abs(k2 - k) < 0.05) break;
+      if (!us.length) { settled = true; break; }
+      const want = (p.adapt_c * T) / us.length;
+      const k2 = Math.min(p.adapt_max, Math.max(p.adapt_min, want));
+      if (Math.abs(k2 - k) < 0.05) { settled = k2 === want; break; }
       k = k2;
+    }
+    if (!settled) { // no width fits (pinned at a limit or not converging): not syllabic speech; don't adapt
+      us = [];
+      for (const [sa, sb] of g) us.push(...nuclei(env.subarray(lo, hi), lo, sa, sb));
     }
     units.push(...us);
   }

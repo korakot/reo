@@ -26,7 +26,7 @@ HOP = 0.010
 # until the rate settles. On audio played faster or slower that keeps the count the same (validate/tempo.py).
 DEFAULT = dict(smooth=6, mindip=2.0, act_db=30.0, nuc_db=25.0, voi_thr=0.42, min_pause=0.12, min_run=0.04,
                flat_db=1.0, floor_db=6.0, floor_pct=10, use_hi=True, hi_db=8.0, hi_max=0.2, min_voiced=0.03,
-               adapt=True, adapt_c=24.0, adapt_min=2.0, adapt_max=14.0, adapt_group=0.5, adapt_iter=8,
+               adapt=True, adapt_c=24.0, adapt_min=2.0, adapt_max=14.0, adapt_group=0.5, adapt_iter=8, adapt_span=20.0,
                denoise=True, noise_pct=20.0, noise_alpha=1.0, noise_range=50.0, act_band='dj')
 # utterances: speech joined across pauses shorter than utt_pause; a rate is given only with min_speech of speech
 RATE = dict(utt_pause=0.5, min_speech=1.0)
@@ -161,22 +161,26 @@ def detect(F, **kw):
         return [u for sa, sb in st for u in nuclei(env, 0, sa, sb)], st
     # speed adaptation, per utterance (stretches joined across pauses shorter than adapt_group)
     groups = []
-    for a, b in st:
-        if groups and (a - groups[-1][-1][1]) * HOP < p['adapt_group']: groups[-1].append((a, b))
+    for a, b in st:  # at most adapt_span seconds of speech per group, so the speed adapts locally
+        if (groups and (a - groups[-1][-1][1]) * HOP < p['adapt_group']
+                and (sum(y - x for x, y in groups[-1]) + b - a) * HOP <= p['adapt_span']): groups[-1].append((a, b))
         else: groups.append([(a, b)])
     margin = int(p['adapt_max'] / 2) + 4   # wider than the widest kernel's half-width, so edges match a full smooth
     units = []
     for g in groups:
         T = sum(b - a for a, b in g) * HOP
         lo, hi = max(0, g[0][0] - margin), min(n, g[-1][1] + margin)
-        k, us = float(p['smooth']), []
+        k, us, settled = float(p['smooth']), [], False
         for _ in range(p['adapt_iter']):
             e = env[lo:hi] if k == p['smooth'] else _smooth(F['dj'][lo:hi], k)
             us = [u for sa, sb in g for u in nuclei(e, lo, sa, sb)]
-            if not us: break
-            k2 = min(p['adapt_max'], max(p['adapt_min'], p['adapt_c'] * T / len(us)))
-            if abs(k2 - k) < 0.05: break
+            if not us: settled = True; break
+            want = p['adapt_c'] * T / len(us)
+            k2 = min(p['adapt_max'], max(p['adapt_min'], want))
+            if abs(k2 - k) < 0.05: settled = k2 == want; break
             k = k2
+        if not settled:  # no width fits (pinned at a limit or not converging): not syllabic speech; don't adapt
+            us = [u for sa, sb in g for u in nuclei(env[lo:hi], lo, sa, sb)]
         units += us
     return units, st
 
