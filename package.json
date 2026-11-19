@@ -8,5 +8,6 @@
   "bin": { "reo": "cli.mjs" },
   "files": ["reo.js", "cli.mjs"],
   "repository": { "type": "git", "url": "https://github.com/korakot/reo" },
-  "engines": { "node": ">=18" }
+  "engines": { "node": ">=18" },
+  "license": "MIT"
 }

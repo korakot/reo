@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Speaking rate (syllables per second of speech) from audio alone, tested on Thai"
 readme = "README.md"
 requires-python = ">=3.8"
+license = {text = "MIT"}
 dependencies = ["numpy"]
 
 [project.scripts]

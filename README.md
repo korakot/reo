@@ -147,6 +147,10 @@ So level, sample rate, file format, a telephone line, moderate noise, hum and DC
 
 To rerun everything: `validate/run_all.sh` (it says where each corpus comes from). `test/parity.py` checks that Python and JS agree and `test/spans.py` that spans add up. No audio is kept in this repository.
 
+## Licence
+
+MIT (`LICENSE`). The code only: no audio, corpus data or trained model is part of this repository.
+
 ## Credit
 
 The detector comes from [korakot/pat](https://github.com/korakot/pat), after de Jong, N. H. & Wempe, T. (2009), *Praat script to detect syllable nuclei and measure speech rate automatically*, Behavior Research Methods 41:385. Test data: LOTUS and TSync-1 (NECTEC), GigaSpeech 2 (SpeechColab, with riang's alignment from korakot/vox), TVSpeech (Typhoon, SCB 10X).
