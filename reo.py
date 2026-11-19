@@ -8,10 +8,13 @@ Needs only numpy. The JS twin, reo.js, gives the same numbers on the same audio.
 
     python reo.py call.wav                 # one line per file (and per channel)
     python reo.py *.wav --csv files.csv --utterances utt.csv --threshold 6.5
+    python reo.py --spans spans.csv --span-csv span_rates.csv       # rows: file,start,end[,channel][,label]
+    python reo.py call.wav --window 10 --windows every10s.csv
 
     import reo
     r = reo.analyse_file('call.wav')[0]    # first channel
     r['rate'], r['utterances']
+    reo.span(r, 30.0, 45.0)['rate']                # any stretch of time, from the same analysis
 """
 import argparse, csv, os, shutil, struct, subprocess, sys
 import numpy as np
@@ -21,9 +24,10 @@ HOP = 0.010
 # over-counted (long syllables split) and fast speech under-counted (syllables merge). So each utterance is
 # smoothed over a width in proportion to its own syllable length, adapt_c / rate frames, found by iterating
 # until the rate settles. On audio played faster or slower that keeps the count the same (validate/tempo.py).
-DEFAULT = dict(smooth=6, mindip=2.0, act_db=25.0, nuc_db=25.0, voi_thr=0.45, min_pause=0.12, min_run=0.04,
+DEFAULT = dict(smooth=6, mindip=2.0, act_db=30.0, nuc_db=25.0, voi_thr=0.42, min_pause=0.12, min_run=0.04,
                flat_db=1.0, floor_db=6.0, floor_pct=10, use_hi=True, hi_db=8.0, hi_max=0.2, min_voiced=0.03,
-               adapt=True, adapt_c=24.0, adapt_min=2.0, adapt_max=14.0, adapt_group=0.5, adapt_iter=8)
+               adapt=True, adapt_c=24.0, adapt_min=2.0, adapt_max=14.0, adapt_group=0.5, adapt_iter=8,
+               denoise=True, noise_pct=20.0, noise_alpha=1.0, noise_range=50.0, act_band='dj')
 # utterances: speech joined across pauses shorter than utt_pause; a rate is given only with min_speech of speech
 RATE = dict(utt_pause=0.5, min_speech=1.0)
 
@@ -56,7 +60,8 @@ def features(x, sr, chunk=4096, win=0.020):
     out = {k: np.empty(nf) for k in ('full', 'dj', 'hi', 'voi')}
     for i0 in range(0, nf, chunk):
         idx = hop * np.arange(i0, min(nf, i0 + chunk))[:, None] + pad
-        S = xp[idx - ns // 2 + np.arange(ns)[None, :]] * ws
+        S = xp[idx - ns // 2 + np.arange(ns)[None, :]]
+        S = (S - S.mean(1, keepdims=True)) * ws  # frame mean removed: a DC offset would leak into the low bands
         P = np.abs(np.fft.rfft(S, nfs, axis=1)) ** 2
         for k, m in bands.items():
             out[k][i0:i0 + len(idx)] = 10 * np.log10(P[:, m].sum(1) + 1e-10)
@@ -93,12 +98,26 @@ def _valley(env, a, b, flat):
     return a + (lo + hi) / 2.0
 
 
+def denoise(F, pct=20.0, alpha=1.0, rng=50.0):
+    """Subtract each band's noise power (its pct-th percentile over the recording, times alpha) before the levels
+    are used, with a floor rng dB under the band's 99th percentile. Without this, steady noise raises the level
+    floor that separates speech from pauses, and the quiet parts of speech are counted as pauses."""
+    out = dict(F)
+    for k in ('full', 'dj', 'hi'):
+        P = 10 ** (np.asarray(F[k], float) / 10)
+        N = np.percentile(P, pct) * alpha
+        top = np.percentile(P, 99)
+        out[k] = 10 * np.log10(np.maximum(P - N, 0) + top * 10 ** (-rng / 10))
+    return out
+
+
 def detect(F, **kw):
     """Syllable nuclei. Returns (units, stretches); times in frames. A unit is dict(start, end, peak)."""
     p = dict(DEFAULT); p.update(kw)
     n = len(F['full'])
     if n < 3: return [], []
-    full = _smooth(F['full'], 3)
+    if p['denoise']: F = denoise(F, p['noise_pct'], p['noise_alpha'], p['noise_range'])
+    full = _smooth(F[p['act_band']], 3)
     voiced = F['voi'] >= p['voi_thr']
     env = _smooth(F['dj'], p['smooth'])
     thr = max(np.percentile(full, 99) - p['act_db'], np.percentile(full, p['floor_pct']) + p['floor_db'])
@@ -167,7 +186,7 @@ def detect(F, **kw):
 def rate(units, stretches, duration, utt_pause=RATE['utt_pause'], min_speech=RATE['min_speech']):
     """Articulation rate and per-utterance rates from detected units and speech stretches (frames)."""
     peaks = np.array([u['peak'] for u in units], float) * HOP
-    st = [(a * HOP, b * HOP) for a, b in stretches]
+    st = [(a * HOP, min(b * HOP, duration)) for a, b in stretches]  # the last frame can reach past the end
     speech = sum(b - a for a, b in st)
     iv = []
     for a, b in st:
@@ -190,7 +209,7 @@ def rate(units, stretches, duration, utt_pause=RATE['utt_pause'], min_speech=RAT
         pause_share=1 - speech / (st[-1][1] - st[0][0]) if st else None,
         utterance_rate_median=float(np.median(rated)) if rated else None,
         utterance_rate_p90=float(np.percentile(rated, 90)) if rated else None,
-        utterances=utts, peaks=list(peaks), stretches=st)
+        utterances=utts, peaks=[float(t) for t in peaks], stretches=[(float(a), float(b)) for a, b in st])
 
 
 def analyse(x, sr, **kw):
@@ -200,6 +219,31 @@ def analyse(x, sr, **kw):
     F = features(x, sr)
     units, st = detect(F, **det)
     return rate(units, st, len(x) / sr, **rt)
+
+
+def span(r, start, end, min_speech=0.5):
+    """Rate over [start, end) seconds of an analysed recording r: the syllables whose peak lies in the span, over
+    the speech inside it. Measuring a span of the whole-file analysis (rather than cutting the audio first) keeps
+    the level thresholds of the whole recording, so spans of one file are measured alike. A rate is given when the
+    span holds at least min_speech seconds of speech."""
+    speech = float(sum(max(0.0, min(b, end) - max(a, start)) for a, b in r['stretches']))
+    q = [t for t in r['peaks'] if start <= t < end]
+    iv = []
+    for a, b in r['stretches']:
+        p = [t for t in q if a <= t < b]
+        iv += [y - x for x, y in zip(p, p[1:])]
+    return dict(start=start, end=end, speech=speech, syllables=len(q),
+                rate=len(q) / speech if speech >= min_speech and speech > 0 else None,
+                median_interval=float(np.median(iv)) if iv else None)
+
+
+def windows(r, size, step=None, min_speech=0.5):
+    """span() over consecutive windows of size seconds (every step seconds, default = size) across the recording."""
+    step = step or size
+    out, t = [], 0.0
+    while t < r['duration']:
+        out.append(span(r, t, min(t + size, r['duration']), min_speech)); t += step
+    return out
 
 
 def fast_share(r, threshold):
@@ -287,14 +331,24 @@ def _f(v, d=2):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description='Speaking rate (syllables per second of speech) from audio files.')
-    ap.add_argument('files', nargs='+')
+    ap.add_argument('files', nargs='*')
     ap.add_argument('--channel', default='all', help="'all' (default) or a channel number, 0 = left")
     ap.add_argument('--threshold', type=float, default=None, help='flag utterances faster than this (syll/s)')
     ap.add_argument('--csv', help='write one row per file and channel')
     ap.add_argument('--utterances', help='write one row per utterance')
+    ap.add_argument('--spans', help='CSV of spans to measure: file,start,end[,channel][,label] (seconds); its files '
+                    'are analysed too')
+    ap.add_argument('--span-csv', help='write one row per span (with --spans)')
+    ap.add_argument('--window', type=float, help='also measure consecutive windows of this many seconds')
+    ap.add_argument('--windows', help='write one row per window (with --window)')
     ap.add_argument('--mindip', type=float, default=DEFAULT['mindip'])
     a = ap.parse_args(argv)
     chans = None if a.channel == 'all' else [int(a.channel)]
+    want = []
+    if a.spans:
+        with open(a.spans, newline='') as f: want = list(csv.DictReader(f))
+        a.files = list(dict.fromkeys(a.files + [w['file'] for w in want]))
+    srows, wrows = [], []
     cols = ['file', 'channel', 'duration', 'speech_time', 'syllables', 'rate', 'median_interval_ms',
             'pause_share', 'utterance_rate_median', 'utterance_rate_p90'] + (['fast_share'] if a.threshold else [])
     rows, urows = [], []
@@ -315,6 +369,19 @@ def main(argv=None):
                 urows.append(dict(file=path, channel=r['channel'], start=_f(u['start']), end=_f(u['end']),
                                   speech=_f(u['speech']), syllables=u['syllables'], rate=_f(u['rate']),
                                   fast='' if a.threshold is None or u['rate'] is None else int(u['rate'] > a.threshold)))
+            for w in want:
+                if w['file'] == path and (not w.get('channel') or int(w['channel']) == r['channel']):
+                    sp = span(r, float(w['start']), float(w['end']))
+                    srows.append(dict(file=path, channel=r['channel'], label=w.get('label', ''), start=w['start'], end=w['end'],
+                                      speech=_f(sp['speech']), syllables=sp['syllables'], rate=_f(sp['rate']),
+                                      median_interval_ms=_f(sp['median_interval'] and sp['median_interval'] * 1000, 0)))
+                    print(f"  span {w.get('label') or ''} {w['start']}-{w['end']} s ch{r['channel']}: {srows[-1]['rate'] or '-'} syll/s"
+                          f" ({sp['syllables']} syllables in {sp['speech']:.2f} s of speech)")
+            if a.window:
+                for sp in windows(r, a.window):
+                    wrows.append(dict(file=path, channel=r['channel'], start=_f(sp['start']), end=_f(sp['end']),
+                                      speech=_f(sp['speech']), syllables=sp['syllables'], rate=_f(sp['rate']),
+                                      median_interval_ms=_f(sp['median_interval'] and sp['median_interval'] * 1000, 0)))
             print(f"{os.path.basename(path)} ch{r['channel']}: {row['rate']} syll/s over {row['speech_time']} s of speech"
                   f" ({r['syllables']} syllables; median interval {row['median_interval_ms']} ms"
                   + (f"; {float(row['fast_share'] or 0) * 100:.0f}% of speech above {a.threshold}" if a.threshold else '') + ')')
@@ -325,6 +392,13 @@ def main(argv=None):
         with open(a.utterances, 'w', newline='') as f:
             w = csv.DictWriter(f, ['file', 'channel', 'start', 'end', 'speech', 'syllables', 'rate', 'fast'])
             w.writeheader(); w.writerows(urows)
+    cols = ['file', 'channel', 'start', 'end', 'speech', 'syllables', 'rate', 'median_interval_ms']
+    if a.span_csv:
+        with open(a.span_csv, 'w', newline='') as f:
+            w = csv.DictWriter(f, cols[:2] + ['label'] + cols[2:]); w.writeheader(); w.writerows(srows)
+    if a.windows:
+        with open(a.windows, 'w', newline='') as f:
+            w = csv.DictWriter(f, cols); w.writeheader(); w.writerows(wrows)
 
 
 if __name__ == '__main__':

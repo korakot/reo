@@ -51,7 +51,7 @@
   .thr input[type=range] { flex: 1 1 200px; accent-color: var(--warn); }
   .thr output { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warn); min-width: 7ch; }
   canvas { display: block; width: 100%; touch-action: manipulation; }
-  #timeline { height: 220px; cursor: pointer; }
+  #timeline { height: 220px; cursor: crosshair; touch-action: pan-y; }
   #detail { height: 170px; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
   #fast { font-weight: 600; }
@@ -85,7 +85,7 @@
         <h2>Speed over time</h2>
         <span id="fast"></span>
       </div>
-      <p class="hint">One bar per utterance (speech between pauses of half a second or more). Tap a bar to hear it and see its syllables. Grey ticks are utterances under 1 s of speech, too short for a rate.</p>
+      <p class="hint">One bar per utterance (speech between pauses of half a second or more). Tap a bar to hear it and see its syllables; drag across the chart to measure any stretch, such as one part of a script. Grey ticks are utterances under 1 s of speech, too short for a rate.</p>
       <canvas id="timeline" aria-label="Speaking rate per utterance over time"></canvas>
       <div class="thr">
         <label for="thr">“Too fast” line</label>

@@ -79,9 +79,12 @@ def ccost_items(root):
     raise NotImplementedError('filled in once the CCOST layout is known')
 
 
+OPTS = __import__('json').loads(os.environ.get('REO_OPTS', '{}'))  # detector overrides, for experiments
+
+
 def run(it):
     X, sr = sr_.read_audio(it['wav'])
-    r = sr_.analyse(X[0], sr)
+    r = sr_.analyse(X[0], sr, **OPTS)
     n, sp = truth(it['segs'] if 'segs' in it else htk(it['lab']))
     return dict(id=it['id'], speaker=it['speaker'], sex=it['sex'], cond=it['cond'],
                 true_syl=n, true_speech=round(sp, 3), true_rate=round(n / sp, 3) if sp else '',

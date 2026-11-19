@@ -1,8 +1,8 @@
 // reo demo page: open or record audio, analyse each channel in a worker, draw rate per utterance.
-import { readWav, fastShare, HOP } from './reo.js';
+import { readWav, fastShare, span, HOP } from './reo.js';
 
 const $ = (id) => document.getElementById(id);
-const S = { audio: null, results: [], ch: 0, sel: null, thr: 6.0, name: '', job: 0, playing: null };
+const S = { audio: null, results: [], ch: 0, sel: null, span: null, drag: null, thr: 6.0, name: '', job: 0, playing: null };
 try { const t = parseFloat(localStorage.getItem('reo-thr')); if (t >= 3 && t <= 9) S.thr = t; } catch {}
 $('thr').value = S.thr;
 
@@ -53,7 +53,7 @@ async function load(blob, name) {
   if (job !== S.job) return;
   const dur = audio.channels[0].length / audio.sr;
   if (dur < 1) { status('This recording is shorter than a second.'); return; }
-  S.audio = audio; S.name = name; S.results = []; S.ch = 0; S.sel = null;
+  S.audio = audio; S.name = name; S.results = []; S.ch = 0; S.sel = null; S.span = null;
   $('results').hidden = true;
   if (worker) worker.terminate();
   worker = new Worker('worker.js', { type: 'module' });
@@ -93,7 +93,7 @@ function show() {
       const b = document.createElement('button');
       b.role = 'tab'; b.textContent = `${names[c]} · ${r.rate ? r.rate.toFixed(1) : '–'} /s`;
       b.setAttribute('aria-selected', c === S.ch);
-      b.onclick = () => { S.ch = c; S.sel = null; show(); };
+      b.onclick = () => { S.ch = c; S.sel = null; S.span = null; show(); };
       tabs.appendChild(b);
     });
   }
@@ -106,7 +106,7 @@ function show() {
     stat(fmtTime(r.speech_time), `speaking time (of ${fmtTime(r.duration)})`) +
     stat(r.pause_share !== null ? Math.round(r.pause_share * 100) + '%' : '–', 'of the talk is pauses');
   $('fileinfo').textContent = `${S.name}${S.results.length > 1 ? ' · ' + (S.ch === 0 ? 'left' : S.ch === 1 ? 'right' : 'channel ' + (S.ch + 1)) : ''}`;
-  if (S.sel === null) {
+  if (S.sel === null && !S.span) {
     // start on the fastest rated utterance, so there is something to hear
     let best = -1, bi = null;
     r.utterances.forEach((u, i) => { if (u.rate !== null && u.rate > best) { best = u.rate; bi = i; } });
@@ -194,6 +194,11 @@ function drawTimeline() {
     g.setLineDash([]); g.fillStyle = ink; g.textAlign = 'left'; g.textBaseline = 'bottom';
     g.fillText('average ' + r.rate.toFixed(1), TL.l + 4, y - 2);
   }
+  if (S.span) {
+    g.fillStyle = css('--ink'); g.globalAlpha = 0.12;
+    g.fillRect(s.x(S.span.start), TL.t, s.x(S.span.end) - s.x(S.span.start), s.y(0) - TL.t);
+    g.globalAlpha = 1;
+  }
   g.strokeStyle = css('--warn'); g.setLineDash([6, 4]); g.lineWidth = 1.5;
   const yt = s.y(S.thr); g.beginPath(); g.moveTo(TL.l, yt); g.lineTo(w - TL.r, yt); g.stroke();
   g.setLineDash([]);
@@ -206,27 +211,59 @@ function niceStep(x) {
   return c.find((v) => v >= x) || 3600;
 }
 
-$('timeline').addEventListener('click', (e) => {
-  const r = S.results[S.ch];
-  if (!r) return;
-  const s = tlScale(), rect = e.currentTarget.getBoundingClientRect();
+// tap a bar: that utterance; drag across the timeline: any span, measured with reo's span()
+const tl = $('timeline');
+tl.addEventListener('pointerdown', (e) => {
+  if (!S.results[S.ch]) return;
+  const rect = tl.getBoundingClientRect();
+  S.drag = { x0: e.clientX - rect.left, moved: false };
+  tl.setPointerCapture(e.pointerId);
+});
+tl.addEventListener('pointermove', (e) => {
+  if (!S.drag) return;
+  const r = S.results[S.ch], s = tlScale(), rect = tl.getBoundingClientRect(), x = e.clientX - rect.left;
+  if (Math.abs(x - S.drag.x0) < 6 && !S.drag.moved) return;
+  S.drag.moved = true;
+  // snapped to 0.1 s, so the bounds shown are the bounds measured (and give the same number in reo.py / cli.mjs)
+  const clamp = (t) => Math.round(Math.max(0, Math.min(r.duration, t)) * 10) / 10;
+  const a = clamp(s.t(Math.min(x, S.drag.x0))), b = clamp(s.t(Math.max(x, S.drag.x0)));
+  S.span = { start: a, end: b }; S.sel = null;
+  drawTimeline(); drawDetail();
+});
+tl.addEventListener('pointerup', (e) => {
+  if (!S.drag) return;
+  const moved = S.drag.moved; S.drag = null;
+  if (moved) return;
+  const r = S.results[S.ch], s = tlScale(), rect = tl.getBoundingClientRect();
   const t = s.t(e.clientX - rect.left), tol = s.t(TL.l + 6) - s.t(TL.l);
   let best = null, bd = Infinity;
   r.utterances.forEach((u, i) => {
     const d = t < u.start ? u.start - t : t > u.end ? t - u.end : 0;
     if (d < bd) { bd = d; best = i; }
   });
-  if (best !== null && bd <= tol) { S.sel = best; drawTimeline(); drawDetail(); play(); }
+  if (best !== null && bd <= tol) { S.sel = best; S.span = null; drawTimeline(); drawDetail(); play(); }
 });
+
+// the selected stretch: an utterance, or a span dragged on the timeline
+function selection() {
+  const r = S.results[S.ch];
+  if (!r) return null;
+  if (S.span) {
+    const q = span(r, S.span.start, S.span.end);
+    return { start: q.start, end: q.end, n: q.syllables, speech: q.speech, rate: q.rate, kind: 'Span' };
+  }
+  if (S.sel === null) return null;
+  const u = r.utterances[S.sel];
+  return { start: u.start, end: u.end, n: u.syllables, speech: u.speech, rate: u.rate, kind: '' };
+}
 
 function drawDetail() {
   const r = S.results[S.ch];
-  const u = r && S.sel !== null ? r.utterances[S.sel] : null;
+  const u = selection();
   $('detailCard').hidden = !u;
   if (!u) return;
-  const n = r.peaks.filter((t) => t >= u.start && t < u.end).length;
-  $('detailTitle').textContent = `${fmtSpan(u.start, u.end)} · ${n} syllables in ${u.speech.toFixed(1)} s of speech` +
-    (u.rate !== null ? ` = ${u.rate.toFixed(1)} /s` : ' (too short for a rate)');
+  $('detailTitle').textContent = `${u.kind ? u.kind + ' ' : ''}${fmtSpan(u.start, u.end)} · ${u.n} syllables in ${u.speech.toFixed(1)} s of speech` +
+    (u.rate !== null ? ` = ${u.rate.toFixed(1)} /s` : ' (too little speech for a rate)');
   const { g, w, h } = setup($('detail'));
   const a = Math.max(0, u.start - 0.3), b = Math.min(r.duration, u.end + 0.3);
   const X = (t) => 8 + ((t - a) / (b - a)) * (w - 16);
@@ -265,8 +302,8 @@ function drawDetail() {
 let actx = null;
 function play() {
   const r = S.results[S.ch];
-  if (!r || S.sel === null) return;
-  const u = r.utterances[S.sel];
+  const u = selection();
+  if (!r || !u) return;
   if (S.playing) { try { S.playing.src.stop(); } catch {} S.playing = null; }
   actx = actx || new AudioContext();
   actx.resume();

@@ -1,4 +1,5 @@
-"""Parity test: reo.py and reo.js must give the same syllables, times and rates on the same files.
+"""Parity test: reo.py and reo.js must give the same syllables, times and rates on the same files,
+including span() and windows().
 
     python3 test/parity.py [<wav> ...]
 
@@ -37,9 +38,15 @@ def main(files):
         for f in files:
             for c, r in enumerate(reo.analyse_file(f)):
                 j = js[f][c]
+                pw = [[w['syllables'], w['speech'], w['rate'], w['median_interval']] for w in reo.windows(r, 5)]
+                ps = [[q['syllables'], q['speech'], q['rate']] for q in (reo.span(r, a, b) for a, b in [(0.3, 2.1), (1.0, 7.7), (2.5, 30)])]
+                close = lambda u, v: all((x is None and y is None) or (x is not None and y is not None and abs(x - y) < 1e-9)
+                                         for x, y in zip(u, v)) and len(u) == len(v)
                 same = (r['syllables'] == j['syllables'] and len(r['utterances']) == j['utterances']
                         and all(abs(a - b) < 1e-9 for a, b in zip(r['peaks'], j['peaks']))
-                        and abs((r['rate'] or 0) - (j['rate'] or 0)) < 1e-9)
+                        and abs((r['rate'] or 0) - (j['rate'] or 0)) < 1e-9
+                        and len(pw) == len(j['windows']) and all(close(u, v) for u, v in zip(pw, j['windows']))
+                        and all(close(u, v) for u, v in zip(ps, j['spans'])))
                 bad += not same
                 print(f"{'OK  ' if same else 'DIFF'} {os.path.basename(f)} ch{c}: py {r['syllables']} syl {r['rate'] or 0:.4f}/s, "
                       f"js {j['syllables']} syl {j['rate'] or 0:.4f}/s")

@@ -35,17 +35,38 @@ const r = analyse(channels[0], sr);                 // r.rate, r.utterances, r.p
 
 `node cli.mjs call.wav --threshold 6` does the same from the command line for WAV files.
 
+**Spans.** To measure part of a recording, such as the stretch where an agent reads a script, analyse the whole file once and ask for the span. Syllables count when their peak falls inside it; speaking time is the speech inside it.
+
+```python
+r = reo.analyse_file('call.wav')[0]
+reo.span(r, 62.0, 95.5)        # {'start': 62.0, 'end': 95.5, 'speech': 27.1, 'syllables': 141, 'rate': 5.2, 'median_interval': 0.18}
+reo.windows(r, 10)             # the same for every 10 s of the recording
+```
+
+```js
+span(r, 62.0, 95.5).rate;  windows(r, 10);
+```
+
+From the command line: `reo --spans spans.csv --span-csv rates.csv`, where `spans.csv` has the columns `file,start,end` and optionally `channel,label`; `reo call.wav --window 10 --windows every10s.csv`; `node cli.mjs call.wav --span 62:95.5 --window 10`. On the demo page, drag across the chart. Measuring a span inside the whole-file analysis, rather than cutting the audio first, keeps the level and noise estimates of the whole recording, so every span of a file is measured on the same footing (the two agree within about 1%, see Accuracy).
+
 **Stereo call recordings:** most call systems record the agent on one channel and the customer on the other. reo measures each channel on its own, so the agent's speed is not mixed with the customer's. A mono recording of two people gives one rate for both.
 
 ## What the number means
 
-reo finds each syllable as a peak of loudness in the 300–3300 Hz band that is voiced, which is the method of de Jong & Wempe (2009) with the band and settings tested for Thai in [korakot/pat](https://github.com/korakot/pat) (`wiki/syllable-detection.md`). Their standard Praat script, on full-band loudness, misses 16% of Thai syllables in running speech; the 300–3300 Hz band misses about 5%.
+reo finds each syllable as a peak of loudness in the 300–3300 Hz band that is voiced, which is the method of de Jong & Wempe (2009) with the band and settings tested for Thai in [korakot/pat](https://github.com/korakot/pat) (`wiki/syllable-detection.md`). Their standard Praat script, on full-band loudness, misses 16% of Thai syllables in running speech; the 300–3300 Hz band misses about 5%. reo accepts a peak as voiced at a slightly lower voicing strength than pat (0.42 against 0.45), because conversation is often weakly voiced (creak, reduced vowels): on the CCOST interviews this took the per-speaker error from −4% to −2%. Going lower helps conversation a little more but lets background music through: at 0.35, ranking the GigaSpeech 2 YouTube videos by speed fell from ρ = 0.87 to 0.63.
 
 Pauses of 120 ms or more are left out of the speaking time, so the rate is the **articulation rate**: how fast the words come while the person is talking, separate from how much they pause (also reported, as the share of pauses). An **utterance** is speech between pauses of half a second or more; it gets a rate when it holds at least one second of speech.
 
 reo also reports the **median time from one syllable to the next**, which is close to 1 / rate and is what you get from syllable timestamps.
 
 **Speed adaptation.** With one fixed amount of smoothing, a detector over-counts slow speech (a long syllable splits in two) and under-counts fast speech (two short syllables merge). reo smooths each utterance in proportion to its own syllable length, found by iterating until the rate settles, and uses a 20 ms analysis window (pat uses 32 ms). On the speed test below this cut the syllables lost at double speed from 9–25% to 4–10%, and the over-count at 0.6× speed from up to 18% to up to 9%.
+
+**The same speech, recorded differently, should get the same number.** Three things make reo's number stable across recordings:
+- *Noise.* Each band's steady noise (its 20th-percentile power over the recording) is subtracted before the levels are used. Without it, noise raised the level floor that separates speech from pauses, quiet parts of speech were counted as pauses, and the rate rose 8–15% at 20 dB SNR.
+- *Telephone lines.* Speech and pauses are told apart in the 300–3300 Hz band, which a phone line keeps. With the full band, a phone line removed the voice energy below 300 Hz, more of it for men, and put men 4% faster than women at the same true speed.
+- *DC offset.* Each analysis frame has its mean removed; an offset otherwise leaked into the low bands and moved the rate by 12–32%.
+
+All thresholds are relative to the recording (percentiles of its own levels), so the recording level does not matter.
 
 **Where to set "too fast"** is a judgement, not something reo knows. Have a few people rate some clips as too fast or fine, run reo on them, and put the line between the two groups. For orientation: people reading sentences aloud measure about 3.5 per second, read news 4.8, YouTube talk about 5.
 

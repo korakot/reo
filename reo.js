@@ -5,13 +5,15 @@
 //   import { analyse, readWav } from './reo.js';
 //   const { channels, sr } = readWav(arrayBuffer);
 //   const r = analyse(channels[0], sr);   // r.rate (syll/s), r.utterances, r.peaks, ...
+//   span(r, 30, 45).rate                  // any stretch of time, from the same analysis
 
 export const HOP = 0.010;
 // pat's detector settings plus speed adaptation (see DEFAULT in reo.py for why).
 export const DEFAULT = {
-  smooth: 6, mindip: 2.0, act_db: 25.0, nuc_db: 25.0, voi_thr: 0.45, min_pause: 0.12, min_run: 0.04,
+  smooth: 6, mindip: 2.0, act_db: 30.0, nuc_db: 25.0, voi_thr: 0.42, min_pause: 0.12, min_run: 0.04,
   flat_db: 1.0, floor_db: 6.0, floor_pct: 10, use_hi: true, hi_db: 8.0, hi_max: 0.2, min_voiced: 0.03,
   adapt: true, adapt_c: 24.0, adapt_min: 2.0, adapt_max: 14.0, adapt_group: 0.5, adapt_iter: 8,
+  denoise: true, noise_pct: 20.0, noise_alpha: 1.0, noise_range: 50.0, act_band: 'dj',
 };
 export const RATE = { utt_pause: 0.5, min_speech: 1.0 };
 
@@ -85,7 +87,10 @@ export function features(x, sr, onProgress, win = 0.020) {
     // spectrum: 32 ms Hann, zero-padded to a power of two
     re.fill(0, 0, nfs); im.fill(0, 0, nfs);
     const s0 = c - Math.floor(ns / 2);
-    for (let j = 0; j < ns; j++) re[j] = at(s0 + j) * ws[j];
+    let sm = 0;
+    for (let j = 0; j < ns; j++) sm += at(s0 + j);
+    sm /= ns; // frame mean removed: a DC offset would leak into the low bands
+    for (let j = 0; j < ns; j++) re[j] = (at(s0 + j) - sm) * ws[j];
     fs.run(re, im);
     for (let k = 0; k <= nfs / 2; k++) pw[k] = re[k] * re[k] + im[k] * im[k];
     for (const key of ['full', 'dj', 'hi']) {
@@ -155,12 +160,25 @@ function valley(env, a, b, flat) {
   return (lo + hi) / 2;
 }
 
+// Subtract each band's noise power (its pct-th percentile over the recording, times alpha) before the levels are
+// used, with a floor rng dB under the band's 99th percentile (see denoise() in reo.py for why).
+export function denoise(F, pct = 20, alpha = 1, rng = 50) {
+  const out = { ...F };
+  for (const k of ['full', 'dj', 'hi']) {
+    const P = Float64Array.from(F[k], (v) => 10 ** (v / 10));
+    const N = percentile(P, pct) * alpha, top = percentile(P, 99), fl = top * 10 ** (-rng / 10);
+    out[k] = Float64Array.from(P, (v) => 10 * Math.log10(Math.max(v - N, 0) + fl));
+  }
+  return out;
+}
+
 // Syllable nuclei. Returns { units, stretches, env }; times in frames. A unit is { start, end, peak }.
 export function detect(F, opts = {}) {
   const p = { ...DEFAULT, ...opts };
   const n = F.full.length;
   if (n < 3) return { units: [], stretches: [], env: new Float64Array(n) };
-  const full = smooth(F.full, 3);
+  if (p.denoise) F = denoise(F, p.noise_pct, p.noise_alpha, p.noise_range);
+  const full = smooth(F[p.act_band], 3);
   const voiced = Array.from(F.voi, (v) => v >= p.voi_thr);
   const env = smooth(F.dj, p.smooth);
   const thr = Math.max(percentile(full, 99) - p.act_db, percentile(full, p.floor_pct) + p.floor_db);
@@ -248,7 +266,7 @@ const median = (a) => { const s = Float64Array.from(a).sort(); const m = s.lengt
 export function rate(units, stretches, duration, opts = {}) {
   const { utt_pause, min_speech } = { ...RATE, ...opts };
   const peaks = units.map((u) => u.peak * HOP);
-  const st = stretches.map(([a, b]) => [a * HOP, b * HOP]);
+  const st = stretches.map(([a, b]) => [a * HOP, Math.min(b * HOP, duration)]); // the last frame can reach past the end
   let speech = 0;
   for (const [a, b] of st) speech += b - a;
   const iv = [];
@@ -284,6 +302,31 @@ export function analyse(x, sr, opts = {}, onProgress) {
   const r = rate(units, stretches, x.length / sr, opts);
   r.env = env; // the 300-3300 Hz loudness curve (dB, 10 ms frames), for drawing
   return r;
+}
+
+// Rate over [start, end) seconds of an analysed recording r: the syllables whose peak lies in the span, over the
+// speech inside it (see span() in reo.py). A rate is given when the span holds at least minSpeech seconds of speech.
+export function span(r, start, end, minSpeech = 0.5) {
+  let speech = 0;
+  for (const [a, b] of r.stretches) speech += Math.max(0, Math.min(b, end) - Math.max(a, start));
+  const q = r.peaks.filter((t) => t >= start && t < end);
+  const iv = [];
+  for (const [a, b] of r.stretches) {
+    const p = q.filter((t) => t >= a && t < b);
+    for (let i = 1; i < p.length; i++) iv.push(p[i] - p[i - 1]);
+  }
+  return {
+    start, end, speech, syllables: q.length,
+    rate: speech >= minSpeech && speech > 0 ? q.length / speech : null,
+    median_interval: iv.length ? median(iv) : null,
+  };
+}
+
+// span() over consecutive windows of size seconds (every step seconds, default = size) across the recording.
+export function windows(r, size, step = size, minSpeech = 0.5) {
+  const out = [];
+  for (let t = 0; t < r.duration; t += step) out.push(span(r, t, Math.min(t + size, r.duration), minSpeech));
+  return out;
 }
 
 // Share of rated speech time in utterances faster than threshold (syllables per second).
