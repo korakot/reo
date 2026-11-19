@@ -6,7 +6,7 @@ Two implementations, one behaviour. `reo.py` (numpy) and `reo.js` (no dependenci
 
 A change to the detector is judged on the checks in `validate/`, not on one file: the hand-marked corpora (`check.py`), real fast speech (`tvspeech.py`, GigaSpeech 2 in `check.py`), and the speed test (`tempo.py`), where the count should stay the same from 0.6× to 2× speed. Update the README tables when the numbers move. Corpora stay outside the repo; no audio is committed.
 
-The page (`index.html`, `app.js`, `worker.js`) is served by GitHub Pages from `main`, so a push to `main` is a deploy. Test it in headless Chromium before pushing.
+The pages are served by GitHub Pages from `main`, so a push to `main` is a deploy: `index.html` (`app.js`, `worker.js`) for recordings, `live.html` (`live.js`, `live-worklet.js` for the microphone, `live-worker.js` for the analysis) for the live dial. Test them in headless Chromium before pushing; for the live page, Chromium's fake microphone (`--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=speech.wav`) plays a WAV as the mic, and `window.__reoLive()` returns the current reading.
 
 Merge each finished step to `main` right away (as in `korakot/memory`): other sessions clone `main`.
 

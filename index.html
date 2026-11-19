@@ -24,6 +24,7 @@
   h1 { font-size: 28px; margin: 0; letter-spacing: -.01em; }
   h1 small { font-weight: 400; color: var(--muted); font-size: 18px; }
   .lede { color: var(--muted); margin: 4px 0 20px; }
+  .lede a { color: var(--accent); }
   .drop { border: 1.5px dashed var(--line); border-radius: 14px; padding: 20px; background: var(--panel); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
   .drop.over { border-color: var(--accent); background: var(--accent-soft); }
   .drop p { margin: 0; color: var(--muted); flex: 1 1 220px; font-size: 14px; }
@@ -66,7 +67,7 @@
 <body>
 <main>
   <h1>reo <small>เร็ว · speaking speed</small></h1>
-  <p class="lede">How fast is someone speaking? Open a recording or record yourself: reo counts the syllables and gives <b>syllables per second of speech</b> (พยางค์ต่อวินาที), utterance by utterance.</p>
+  <p class="lede">How fast is someone speaking? Open a recording or record yourself: reo counts the syllables and gives <b>syllables per second of speech</b> (พยางค์ต่อวินาที), utterance by utterance. Or <a href="live.html"><b>try it live</b></a>: talk and watch the dial move.</p>
 
   <div class="drop" id="drop">
     <label class="btn primary" for="file">Open audio file</label>

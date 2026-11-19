@@ -3,6 +3,7 @@
 **How fast is someone speaking?** reo counts the syllables in a recording and divides by the time spent speaking, so you get **syllables per second of speech** (พยางค์ต่อวินาที), for the whole recording and for each utterance. It needs no transcript and no speech recogniser, and it was tested on Thai.
 
 - **Demo:** https://korakot.github.io/reo/ — open a recording or record yourself. The analysis runs in the browser; nothing is uploaded.
+- **Live:** https://korakot.github.io/reo/live.html — talk and watch a dial show your speed over your last 4 seconds of speech, turning red past your "too fast" line.
 - **Python** (`reo.py`, needs only numpy) for batches of files.
 - **JavaScript** (`reo.js`, no dependencies) for the browser and Node.
 

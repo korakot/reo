@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reo live · speaking speed</title>
+<meta name="description" content="Speak and watch your speaking speed, in syllables per second, change as you talk.">
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e4e1da;
+    --accent: #2f6fdb; --accent-soft: rgba(47, 111, 219, .14);
+    --ok: #2e9e5b; --near: #e0a21b; --warn: #d63a2a; --warn-soft: rgba(214, 58, 42, .14);
+    --env: #3d3c38; --needle: #1d1d1b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161614; --panel: #1f1f1c; --ink: #ecebe6; --muted: #a09e97; --line: #34332f;
+      --accent: #78a6ff; --accent-soft: rgba(120, 166, 255, .18);
+      --ok: #4cc27f; --near: #f2bd45; --warn: #ff6a55; --warn-soft: rgba(255, 106, 85, .2);
+      --env: #d4d2cb; --needle: #ecebe6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: -.01em; }
+  h1 small { font-weight: 400; color: var(--muted); font-size: 18px; }
+  .lede { color: var(--muted); margin: 4px 0 18px; }
+  .lede a { color: var(--accent); }
+  button { font: inherit; font-size: 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 10px 18px; cursor: pointer; }
+  button.go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.stop { background: var(--warn); border-color: var(--warn); color: #fff; font-weight: 600; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 14px; }
+  .gauge { text-align: center; }
+  #gauge { width: 100%; max-width: 520px; height: 320px; margin: 0 auto; }
+  #state { color: var(--muted); font-size: 15px; min-height: 22px; margin-top: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  .thr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; margin-top: 8px; }
+  .thr input[type=range] { flex: 1 1 200px; accent-color: var(--warn); }
+  .thr output { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warn); min-width: 7ch; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 13px; }
+  h2 { font-size: 15px; margin: 0 0 6px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  canvas { display: block; width: 100%; }
+  #strip { height: 120px; }
+  #history { height: 150px; }
+  #msg { color: var(--warn); font-size: 14px; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--accent); }
+  @media (max-width: 480px) { .stats { grid-template-columns: 1fr 1fr; } #gauge { height: 230px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>reo live <small>เร็ว · speaking speed</small></h1>
+  <p class="lede">Press Start and talk. The dial shows how fast you are speaking right now, in <b>syllables per second</b> (พยางค์ต่อวินาที), over your last 4 seconds of speech. Speed up and it turns red. Nothing is recorded or uploaded. For recordings, use the <a href="./">file page</a>.</p>
+
+  <div class="row">
+    <button class="go" id="go">● Start</button>
+    <span id="msg" role="status"></span>
+  </div>
+
+  <div class="card gauge">
+    <canvas id="gauge" role="img" aria-label="Speaking speed dial"></canvas>
+    <div id="state">Press Start and allow the microphone.</div>
+    <div class="thr">
+      <label for="thr">“Too fast” from</label>
+      <input id="thr" type="range" min="3" max="9" step="0.1" value="6.0">
+      <output id="thrv" for="thr">6.0 /s</output>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sRate">–</b><span>average this session (/s)</span></div>
+    <div class="stat"><b id="sSyl">0</b><span>syllables</span></div>
+    <div class="stat"><b id="sTime">0 s</b><span>speaking time</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Syllables as you speak</h2>
+    <p class="hint">Loudness in the 300–3300 Hz band over the last 8 seconds; each dot is a counted syllable. Shaded: speech.</p>
+    <canvas id="strip" aria-label="Loudness and syllables of the last 8 seconds"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>Speed over the last minute</h2>
+    <canvas id="history" aria-label="Speaking speed over the last minute"></canvas>
+  </div>
+
+  <footer>reo · <a href="https://github.com/korakot/reo">github.com/korakot/reo</a> · Use headphones or a quiet room; another voice near the microphone counts too.</footer>
+</main>
+<script type="module" src="live.js"></script>
+</body>
+</html>
