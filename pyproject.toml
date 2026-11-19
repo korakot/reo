@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reo"
+version = "0.1.0"
+description = "Speaking rate (syllables per second of speech) from audio alone, tested on Thai"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = ["numpy"]
+
+[project.scripts]
+reo = "reo:main"
+
+[project.urls]
+Homepage = "https://github.com/korakot/reo"
+
+[tool.setuptools]
+py-modules = ["reo"]

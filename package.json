@@ -1,0 +1,12 @@
+{
+  "name": "@korakot/reo",
+  "version": "0.1.0",
+  "description": "Speaking rate (syllables per second of speech) from audio alone, tested on Thai",
+  "type": "module",
+  "main": "reo.js",
+  "exports": { ".": "./reo.js" },
+  "bin": { "reo": "cli.mjs" },
+  "files": ["reo.js", "cli.mjs"],
+  "repository": { "type": "git", "url": "https://github.com/korakot/reo" },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reo · speaking speed</title>
+<meta name="description" content="How fast is someone speaking? Syllables per second from a recording, measured in your browser.">
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e4e1da;
+    --accent: #2f6fdb; --accent-soft: rgba(47, 111, 219, .14); --warn: #d2542c; --warn-soft: rgba(210, 84, 44, .16);
+    --short: #b9b6ad; --env: #3d3c38;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161614; --panel: #1f1f1c; --ink: #ecebe6; --muted: #a09e97; --line: #34332f;
+      --accent: #78a6ff; --accent-soft: rgba(120, 166, 255, .18); --warn: #ff8a5c; --warn-soft: rgba(255, 138, 92, .2);
+      --short: #5d5b55; --env: #d4d2cb;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: -.01em; }
+  h1 small { font-weight: 400; color: var(--muted); font-size: 18px; }
+  .lede { color: var(--muted); margin: 4px 0 20px; }
+  .drop { border: 1.5px dashed var(--line); border-radius: 14px; padding: 20px; background: var(--panel); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop p { margin: 0; color: var(--muted); flex: 1 1 220px; font-size: 14px; }
+  button, .btn { font: inherit; font-size: 15px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 9px 14px; cursor: pointer; }
+  button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.rec { border-color: var(--warn); color: var(--warn); }
+  button.rec.on { background: var(--warn); color: #fff; }
+  input[type=file] { display: none; }
+  #status { min-height: 24px; margin: 12px 2px; color: var(--muted); font-size: 14px; }
+  #status .bar { display: inline-block; vertical-align: middle; width: 160px; height: 6px; background: var(--line); border-radius: 3px; margin-left: 8px; overflow: hidden; }
+  #status .bar i { display: block; height: 100%; background: var(--accent); width: 0; }
+  #results[hidden] { display: none; }
+  .tabs { display: flex; gap: 6px; margin: 8px 0 12px; flex-wrap: wrap; }
+  .tabs button[aria-selected=true] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stat.big b { font-size: 34px; color: var(--accent); }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-top: 14px; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .thr { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; }
+  .thr input[type=range] { flex: 1 1 200px; accent-color: var(--warn); }
+  .thr output { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--warn); min-width: 7ch; }
+  canvas { display: block; width: 100%; touch-action: manipulation; }
+  #timeline { height: 220px; cursor: pointer; }
+  #detail { height: 170px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  #fast { font-weight: 600; }
+  details { margin-top: 18px; color: var(--muted); font-size: 14px; }
+  details summary { cursor: pointer; color: var(--ink); }
+  table { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+  td, th { border-bottom: 1px solid var(--line); padding: 4px 10px 4px 0; text-align: left; font-variant-numeric: tabular-nums; }
+  a { color: var(--accent); }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>reo <small>เร็ว · speaking speed</small></h1>
+  <p class="lede">How fast is someone speaking? Open a recording or record yourself: reo counts the syllables and gives <b>syllables per second of speech</b> (พยางค์ต่อวินาที), utterance by utterance.</p>
+
+  <div class="drop" id="drop">
+    <label class="btn primary" for="file">Open audio file</label>
+    <input id="file" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm">
+    <button class="rec" id="rec">● Record</button>
+    <p>Or drop a file here. WAV (including μ-law and A-law phone recordings), MP3, M4A and more. Nothing is uploaded: the analysis runs on this device.</p>
+  </div>
+  <div id="status" role="status"></div>
+
+  <section id="results" hidden>
+    <div class="tabs" id="tabs" role="tablist"></div>
+    <div class="stats" id="stats"></div>
+
+    <div class="card">
+      <div class="row">
+        <h2>Speed over time</h2>
+        <span id="fast"></span>
+      </div>
+      <p class="hint">One bar per utterance (speech between pauses of half a second or more). Tap a bar to hear it and see its syllables. Grey ticks are utterances under 1 s of speech, too short for a rate.</p>
+      <canvas id="timeline" aria-label="Speaking rate per utterance over time"></canvas>
+      <div class="thr">
+        <label for="thr">“Too fast” line</label>
+        <input id="thr" type="range" min="3" max="9" step="0.1" value="6.0">
+        <output id="thrv" for="thr">6.0 /s</output>
+      </div>
+      <p class="hint">Where to put the line is your call: have a few people rate some clips as too fast or fine, and set it between the two groups.</p>
+    </div>
+
+    <div class="card" id="detailCard" hidden>
+      <div class="row">
+        <h2 id="detailTitle">Utterance</h2>
+        <button id="play">▶ Play</button>
+      </div>
+      <p class="hint">Loudness in the 300–3300 Hz band; each dot is a counted syllable. Shaded: speech; gaps: pauses left out of the speaking time.</p>
+      <canvas id="detail" aria-label="Loudness and detected syllables of the selected utterance"></canvas>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <span class="hint" id="fileinfo" style="color:var(--muted);font-size:13px"></span>
+      <button id="csv">Download utterances (CSV)</button>
+    </div>
+  </section>
+
+  <details>
+    <summary>How it works and how accurate it is</summary>
+    <p>reo finds each syllable as a peak of loudness in the 300–3300 Hz band that is voiced (the method of de Jong &amp; Wempe, 2009, with the band and settings tested for Thai in <a href="https://github.com/korakot/pat">korakot/pat</a>), and divides the count by the time spent speaking. Pauses of 120 ms or more are left out, so the number is the <i>articulation rate</i>: how fast the words come when the person is talking, not how much they pause. The smoothing adapts to each utterance's own speed, so slow speech is not over-counted and fast speech is not under-counted.</p>
+    <p>Checked against syllables marked by hand and against transcripts (details and code in the <a href="https://github.com/korakot/reo">repository</a>):</p>
+    <table id="acc">
+      <tr><th>Speech</th><th>Speakers</th><th>True rate</th><th>Error</th></tr>
+      <tr><td>Read sentences (LOTUS)</td><td>12 women, 12 men</td><td>3.5 /s</td><td>+0.1% (per speaker r = 0.95)</td></tr>
+      <tr><td>Read news (TSync-1)</td><td>1 woman</td><td>4.8 /s</td><td>+0.6%</td></tr>
+      <tr><td>YouTube (GigaSpeech 2)</td><td>21 videos</td><td>5.0 /s</td><td>count 0.0% (per video ρ = 0.93)</td></tr>
+      <tr><td>YouTube talk (TVSpeech)</td><td>many</td><td>5.1 /s</td><td>count −1.3%</td></tr>
+    </table>
+    <p>Fast speech: exact up to about 6 syllables per second; above that some syllables merge (−5% at 6–7 /s, −12% above 7 /s), so very fast speech reads a little slower than it is, but still faster than slower speech.</p>
+    <p>Limits: one voice per channel. In a stereo call recording (agent on one side, customer on the other) each side is measured on its own; a mono recording of two people mixes their speeds. Music and loud noise add false syllables.</p>
+  </details>
+  <footer>reo · <a href="https://github.com/korakot/reo">github.com/korakot/reo</a> · the same code runs in Python for batches of files</footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
