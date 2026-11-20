@@ -150,7 +150,7 @@ To rerun everything: `validate/run_all.sh` (it says where each corpus comes from
 
 ## Licence
 
-MIT (`LICENSE`). The code only: no audio, corpus data or trained model is part of this repository.
+MIT (`LICENSE`). The code only: no audio, corpus data or trained model is part of this repository. There are no trained weights. The detector's few settings were chosen by testing against the corpora listed under Accuracy, which are used only for evaluation and are not part of this repository.
 
 ## Credit
 
